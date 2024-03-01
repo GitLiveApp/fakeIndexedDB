@@ -1,3 +1,4 @@
+import { Memento } from "vscode";
 import FDBDatabase from "./FDBDatabase.js";
 import FDBOpenDBRequest from "./FDBOpenDBRequest.js";
 import FDBVersionChangeEvent from "./FDBVersionChangeEvent.js";
@@ -221,6 +222,7 @@ const openDatabase = (
 };
 
 class FDBFactory {
+    public memento: Memento = undefined as any;
     public cmp = cmp;
     private _databases: Map<string, Database> = new Map();
 

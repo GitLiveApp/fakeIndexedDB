@@ -11,7 +11,7 @@ import { Key, KeyPath, Record, RollbackLog } from "./types.js";
 class ObjectStore {
     public deleted = false;
     public readonly rawDatabase: Database;
-    public readonly records = new RecordStore();
+    public readonly records: RecordStore;
     public readonly rawIndexes: Map<string, Index> = new Map();
     public name: string;
     public readonly keyPath: KeyPath | null;
@@ -31,6 +31,8 @@ class ObjectStore {
         this.name = name;
         this.keyPath = keyPath;
         this.autoIncrement = autoIncrement;
+        if (keyPath) throw new Error(`keyPath: ${keyPath}`);
+        this.records = new RecordStore(`${rawDatabase.name}.${name}`);
     }
 
     // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-retrieving-a-value-from-an-object-store

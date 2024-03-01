@@ -1,6 +1,6 @@
+import type FDBFactory from "../FDBFactory.js";
 import FDBKeyRange from "../FDBKeyRange.js";
 import {
-    getByKey,
     getByKeyRange,
     getIndexByKey,
     getIndexByKeyGTE,
@@ -10,99 +10,105 @@ import cmp from "./cmp.js";
 import { Key, Record } from "./types.js";
 
 class RecordStore {
-    private records: Record[] = [];
+    constructor(private readonly name: string) {}
 
-    public get(key: Key | FDBKeyRange) {
+    private recordKeys(): Array<string> {
+        const memento = (indexedDB as unknown as FDBFactory).memento;
+        return memento
+            .keys()
+            .filter((it) => it.startsWith(`${this.name}.`))
+            .map((it) => it.substring(this.name.length + 1));
+    }
+
+    private getRecord(key: string): Record {
+        const memento = (indexedDB as unknown as FDBFactory).memento;
+        return { key: key, value: memento.get(`${this.name}.${key}`) };
+    }
+
+    private updateRecord(record: Record) {
+        const memento = (indexedDB as unknown as FDBFactory).memento;
+        memento.update(`${this.name}.${record.key}`, record.value);
+    }
+
+    private assertSorted() {
+        const keys = this.recordKeys();
+        const sortedKeys = keys.sort((a, b) => a.localeCompare(b));
+        for (const idx in keys) {
+            if (keys[idx] !== sortedKeys[idx])
+                throw Error(`${keys[idx]} !== ${sortedKeys[idx]}`);
+        }
+    }
+
+    public get(key: Key | FDBKeyRange): Record {
+        this.assertSorted();
         if (key instanceof FDBKeyRange) {
-            return getByKeyRange(this.records, key);
+            return this.getRecord(getByKeyRange(this.recordKeys(), key)!!);
         }
 
-        return getByKey(this.records, key);
+        return this.getRecord(key);
     }
 
     public add(newRecord: Record) {
-        // Find where to put it so it's sorted by key
-        let i;
-        if (this.records.length === 0) {
-            i = 0;
-        } else {
-            i = getIndexByKeyGTE(this.records, newRecord.key);
-
-            if (i === -1) {
-                // If no matching key, add to end
-                i = this.records.length;
-            } else {
-                // If matching key, advance to appropriate position based on value (used in indexes)
-                while (
-                    i < this.records.length &&
-                    cmp(this.records[i].key, newRecord.key) === 0
-                ) {
-                    if (cmp(this.records[i].value, newRecord.value) !== -1) {
-                        // Record value >= newRecord value, so insert here
-                        break;
-                    }
-
-                    i += 1; // Look at next record
-                }
-            }
-        }
-
-        this.records.splice(i, 0, newRecord);
+        this.updateRecord(newRecord);
+        this.assertSorted();
     }
 
     public delete(key: Key) {
         const deletedRecords: Record[] = [];
-
+        const keys = this.recordKeys();
         const isRange = key instanceof FDBKeyRange;
         while (true) {
             const idx = isRange
-                ? getIndexByKeyRange(this.records, key)
-                : getIndexByKey(this.records, key);
+                ? getIndexByKeyRange(keys, key)
+                : getIndexByKey(keys, key);
             if (idx === -1) {
                 break;
             }
-            deletedRecords.push(this.records[idx]);
-            this.records.splice(idx, 1);
+            deletedRecords.push(this.getRecord(keys[idx]));
+            this.updateRecord({ key: keys[idx], value: undefined });
+            keys.splice(idx, 1);
         }
+        this.assertSorted();
         return deletedRecords;
     }
 
     public deleteByValue(key: Key) {
         const range = key instanceof FDBKeyRange ? key : FDBKeyRange.only(key);
-
         const deletedRecords: Record[] = [];
 
-        this.records = this.records.filter((record) => {
-            const shouldDelete = range.includes(record.value);
-
-            if (shouldDelete) {
+        for (key of this.recordKeys()) {
+            const record = this.getRecord(key);
+            if (range.includes(record.value)) {
                 deletedRecords.push(record);
+                this.updateRecord({ key: key, value: undefined });
             }
-
-            return !shouldDelete;
-        });
-
+        }
+        this.assertSorted();
         return deletedRecords;
     }
 
     public clear() {
-        const deletedRecords = this.records.slice();
-        this.records = [];
+        const deletedRecords: Record[] = [];
+
+        for (const key of this.recordKeys()) {
+            deletedRecords.push(this.getRecord(key));
+            this.updateRecord({ key: key, value: undefined });
+        }
+
         return deletedRecords;
     }
 
     public values(range?: FDBKeyRange, direction: "next" | "prev" = "next") {
+        this.assertSorted();
+        const keys = this.recordKeys();
         return {
             [Symbol.iterator]: () => {
                 let i: number;
                 if (direction === "next") {
                     i = 0;
                     if (range !== undefined && range.lower !== undefined) {
-                        while (this.records[i] !== undefined) {
-                            const cmpResult = cmp(
-                                this.records[i].key,
-                                range.lower,
-                            );
+                        while (keys[i] !== undefined) {
+                            const cmpResult = cmp(keys[i], range.lower);
                             if (
                                 cmpResult === 1 ||
                                 (cmpResult === 0 && !range.lowerOpen)
@@ -113,13 +119,10 @@ class RecordStore {
                         }
                     }
                 } else {
-                    i = this.records.length - 1;
+                    i = keys.length - 1;
                     if (range !== undefined && range.upper !== undefined) {
-                        while (this.records[i] !== undefined) {
-                            const cmpResult = cmp(
-                                this.records[i].key,
-                                range.upper,
-                            );
+                        while (keys[i] !== undefined) {
+                            const cmpResult = cmp(keys[i], range.upper);
                             if (
                                 cmpResult === -1 ||
                                 (cmpResult === 0 && !range.upperOpen)
@@ -136,8 +139,8 @@ class RecordStore {
                         let done;
                         let value;
                         if (direction === "next") {
-                            value = this.records[i];
-                            done = i >= this.records.length;
+                            value = { key: keys[i] };
+                            done = i >= keys.length;
                             i += 1;
 
                             if (
@@ -154,7 +157,7 @@ class RecordStore {
                                 }
                             }
                         } else {
-                            value = this.records[i];
+                            value = { key: keys[i] };
                             done = i < 0;
                             i -= 1;
 
@@ -178,7 +181,7 @@ class RecordStore {
                         // https://github.com/Microsoft/TypeScript/issues/2983
                         return {
                             done,
-                            value,
+                            value: value && this.getRecord(value.key),
                         } as IteratorResult<Record>;
                     },
                 };

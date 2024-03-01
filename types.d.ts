@@ -1,8 +1,10 @@
-declare const fakeIndexedDB: typeof indexedDB;
+import { Memento } from "vscode";
+
+declare const fakeIndexedDB: typeof FDBFactory;
 declare const FDBCursor: typeof IDBCursor;
 declare const FDBCursorWithValue: typeof IDBCursorWithValue;
 declare const FDBDatabase: typeof IDBDatabase;
-declare const FDBFactory: typeof IDBFactory;
+declare const FDBFactory: typeof IDBFactory & { memento: Memento };
 declare const FDBIndex: typeof IDBIndex;
 declare const FDBKeyRange: typeof IDBKeyRange;
 declare const FDBObjectStore: typeof IDBObjectStore;
