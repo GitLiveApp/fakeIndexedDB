@@ -31,17 +31,7 @@ class RecordStore {
         memento.update(`${this.name}.${record.key}`, record.value);
     }
 
-    private assertSorted() {
-        const keys = this.recordKeys();
-        const sortedKeys = keys.sort((a, b) => a.localeCompare(b));
-        for (const idx in keys) {
-            if (keys[idx] !== sortedKeys[idx])
-                throw Error(`${keys[idx]} !== ${sortedKeys[idx]}`);
-        }
-    }
-
     public get(key: Key | FDBKeyRange): Record | undefined {
-        this.assertSorted();
         if (key instanceof FDBKeyRange) {
             return this.getRecord(getByKeyRange(this.recordKeys(), key)!!);
         }
@@ -51,7 +41,6 @@ class RecordStore {
 
     public add(newRecord: Record) {
         this.updateRecord(newRecord);
-        this.assertSorted();
     }
 
     public delete(key: Key) {
@@ -69,7 +58,6 @@ class RecordStore {
             this.updateRecord({ key: keys[idx], value: undefined });
             keys.splice(idx, 1);
         }
-        this.assertSorted();
         return deletedRecords;
     }
 
@@ -84,7 +72,6 @@ class RecordStore {
                 this.updateRecord({ key: key, value: undefined });
             }
         }
-        this.assertSorted();
         return deletedRecords;
     }
 
@@ -100,7 +87,6 @@ class RecordStore {
     }
 
     public values(range?: FDBKeyRange, direction: "next" | "prev" = "next") {
-        this.assertSorted();
         const keys = this.recordKeys();
         return {
             [Symbol.iterator]: () => {
