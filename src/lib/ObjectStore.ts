@@ -31,8 +31,7 @@ class ObjectStore {
         this.name = name;
         this.keyPath = keyPath;
         this.autoIncrement = autoIncrement;
-        if (keyPath) throw new Error(`keyPath: ${keyPath}`);
-        this.records = new RecordStore(`${rawDatabase.name}.${name}`);
+        this.records = new RecordStore(`${rawDatabase.name}.${name}${keyPath ? `.${keyPath}` : ''}`);
     }
 
     // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-retrieving-a-value-from-an-object-store

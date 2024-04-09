@@ -20,9 +20,10 @@ class RecordStore {
             .map((it) => it.substring(this.name.length + 1));
     }
 
-    private getRecord(key: string): Record {
+    private getRecord(key: string): Record | undefined {
         const memento = (indexedDB as unknown as FDBFactory).memento;
-        return { key: key, value: memento.get(`${this.name}.${key}`) };
+        const value = memento.get(`${this.name}.${key}`);
+        return value === undefined ? undefined : { key, value };
     }
 
     private updateRecord(record: Record) {
@@ -39,7 +40,7 @@ class RecordStore {
         }
     }
 
-    public get(key: Key | FDBKeyRange): Record {
+    public get(key: Key | FDBKeyRange): Record | undefined {
         this.assertSorted();
         if (key instanceof FDBKeyRange) {
             return this.getRecord(getByKeyRange(this.recordKeys(), key)!!);
@@ -64,7 +65,7 @@ class RecordStore {
             if (idx === -1) {
                 break;
             }
-            deletedRecords.push(this.getRecord(keys[idx]));
+            deletedRecords.push(this.getRecord(keys[idx])!);
             this.updateRecord({ key: keys[idx], value: undefined });
             keys.splice(idx, 1);
         }
@@ -77,7 +78,7 @@ class RecordStore {
         const deletedRecords: Record[] = [];
 
         for (key of this.recordKeys()) {
-            const record = this.getRecord(key);
+            const record = this.getRecord(key)!;
             if (range.includes(record.value)) {
                 deletedRecords.push(record);
                 this.updateRecord({ key: key, value: undefined });
@@ -91,7 +92,7 @@ class RecordStore {
         const deletedRecords: Record[] = [];
 
         for (const key of this.recordKeys()) {
-            deletedRecords.push(this.getRecord(key));
+            deletedRecords.push(this.getRecord(key)!);
             this.updateRecord({ key: key, value: undefined });
         }
 
