@@ -2,6 +2,18 @@
 
 This is a pure JS in-memory implementation of [the IndexedDB API](https://w3c.github.io/IndexedDB/). Its main utility is for testing IndexedDB-dependent code in Node.js.
 
+This fork of fake-indexeddb supports persistence via [VSCode's Memento API](https://code.visualstudio.com/api/references/vscode-api#Memento), just set the `Memento` instance like this:
+
+```
+import { indexedDB } from "fake-indexeddb";
+
+export async function activate(context: ExtensionContext) {
+    indexedDB.memento = context.globalState //or context.workspaceState
+    ...
+}
+
+```
+
 ## Installation
 
 ```sh
