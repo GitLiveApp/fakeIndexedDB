@@ -1,14 +1,14 @@
 {
-    "name": "fake-indexeddb",
+    "name": "@gitliveapp/fake-indexeddb",
     "version": "5.0.2",
     "description": "Fake IndexedDB: a pure JS in-memory implementation of the IndexedDB API",
-    "homepage": "https://github.com/dumbmatter/fakeIndexedDB",
+    "homepage": "https://github.com/gitliveapp/fakeIndexedDB",
     "repository": {
         "type": "git",
-        "url": "git://github.com/dumbmatter/fakeIndexedDB.git"
+        "url": "git://github.com/gitliveapp/fakeIndexedDB.git"
     },
     "bugs": {
-        "url": "https://github.com/dumbmatter/fakeIndexedDB/issues"
+        "url": "https://github.com/gitliveapp/fakeIndexedDB/issues"
     },
     "keywords": [
         "indexeddb",
