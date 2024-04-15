@@ -10,7 +10,7 @@ import FakeEvent from "./lib/FakeEvent.js";
 import { queueTask } from "./lib/scheduling.js";
 
 const waitForOthersClosedDelete = (
-    databases: Map<string, Database>,
+    factory: FDBFactory,
     name: string,
     openDatabases: FDBDatabase[],
     cb: (err: Error | null) => void,
@@ -21,25 +21,26 @@ const waitForOthersClosedDelete = (
 
     if (anyOpen) {
         queueTask(() =>
-            waitForOthersClosedDelete(databases, name, openDatabases, cb),
+            waitForOthersClosedDelete(factory, name, openDatabases, cb),
         );
         return;
     }
 
-    databases.delete(name);
+    factory._databases.get(name)?.rawObjectStores.forEach(it => it.records.clear());
+    factory._databases = new Map(Array.from(factory._databases.entries()).filter(([it]) => it !== name));
 
     cb(null);
 };
 
 // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-deleting-a-database
 const deleteDatabase = (
-    databases: Map<string, Database>,
+    factory: FDBFactory,
     name: string,
     request: FDBOpenDBRequest,
     cb: (err: Error | null) => void,
 ) => {
     try {
-        const db = databases.get(name);
+        const db = factory._databases.get(name);
         if (db === undefined) {
             cb(null);
             return;
@@ -73,7 +74,7 @@ const deleteDatabase = (
             request.dispatchEvent(event);
         }
 
-        waitForOthersClosedDelete(databases, name, openDatabases, cb);
+        waitForOthersClosedDelete(factory, name, openDatabases, cb);
     } catch (err) {
         cb(err);
     }
@@ -81,6 +82,7 @@ const deleteDatabase = (
 
 // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-running-a-versionchange-transaction
 const runVersionchangeTransaction = (
+    factory: FDBFactory,
     connection: FDBDatabase,
     version: number,
     request: FDBOpenDBRequest,
@@ -131,7 +133,7 @@ const runVersionchangeTransaction = (
         // Set the version of database to version. This change is considered part of the transaction, and so if the
         // transaction is aborted, this change is reverted.
         connection._rawDatabase.version = version;
-        connection.version = version;
+        factory._databases = factory._databases;
 
         // Get rid of this setImmediate?
         const transaction = connection.transaction(
@@ -144,7 +146,7 @@ const runVersionchangeTransaction = (
 
         transaction._rollbackLog.push(() => {
             connection._rawDatabase.version = oldVersion;
-            connection.version = oldVersion;
+            factory._databases = factory._databases;
         });
 
         const event = new FDBVersionChangeEvent("upgradeneeded", {
@@ -184,16 +186,16 @@ const runVersionchangeTransaction = (
 
 // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-opening-a-database
 const openDatabase = (
-    databases: Map<string, Database>,
+    factory: FDBFactory,
     name: string,
     version: number | undefined,
     request: FDBOpenDBRequest,
     cb: (err: Error | null, connection?: FDBDatabase) => void,
 ) => {
-    let db = databases.get(name);
+    let db = factory._databases.get(name);
     if (db === undefined) {
-        db = new Database(name, 0);
-        databases.set(name, db);
+        db = new Database(name, 0, factory.memento);
+        factory._databases = new Map([...factory._databases.entries(), [name, db]]);
     }
 
     if (version === undefined) {
@@ -207,7 +209,7 @@ const openDatabase = (
     const connection = new FDBDatabase(db);
 
     if (db.version < version) {
-        runVersionchangeTransaction(connection, version, request, (err) => {
+        runVersionchangeTransaction(factory, connection, version, request, (err) => {
             if (err) {
                 // DO THIS HERE: ensure that connection is closed by running the steps for closing a database connection before these
                 // steps are aborted.
@@ -224,7 +226,24 @@ const openDatabase = (
 class FDBFactory {
     public memento: Memento = undefined as any;
     public cmp = cmp;
-    private _databases: Map<string, Database> = new Map();
+    private __databases: ReadonlyMap<string, Database> | undefined;
+
+    public get _databases() : ReadonlyMap<string, Database> {
+        if(!this.__databases) {
+            const entries = Object.entries(this.memento.get<{[name: string]: number}>("IDBFactory.databases") || {})
+                .map<[string, Database]>(([name, version]) => [name, new Database(name, version, this.memento)]);
+            this.__databases = new Map(entries);
+        }
+        return this.__databases!
+    }
+
+    public set _databases(value: ReadonlyMap<string, Database>) {
+        this.__databases = value;
+        this.memento.update(
+            "IDBFactory.databases", 
+            Array.from(value.entries()).reduce((acc, [name, database]) => ({ ...acc, [name]: database.version}), {})
+        ).then(undefined, it => console.error(it));   
+    }
 
     // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#widl-IDBFactory-deleteDatabase-IDBOpenDBRequest-DOMString-name
     public deleteDatabase(name: string) {
@@ -235,7 +254,7 @@ class FDBFactory {
             const db = this._databases.get(name);
             const oldVersion = db !== undefined ? db.version : 0;
 
-            deleteDatabase(this._databases, name, request, (err) => {
+            deleteDatabase(this, name, request, (err) => {
                 if (err) {
                     request.error = new Error();
                     request.error.name = err.name;
@@ -281,7 +300,7 @@ class FDBFactory {
 
         queueTask(() => {
             openDatabase(
-                this._databases,
+                this,
                 name,
                 version,
                 request,

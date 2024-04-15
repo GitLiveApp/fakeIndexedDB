@@ -10,25 +10,34 @@ import cmp from "./cmp.js";
 import { Key, Record } from "./types.js";
 
 class RecordStore {
-    constructor(private readonly name: string) {}
+    private readonly prefix: string;
+    private readonly writeCache = new Map<string, any>()
+
+    constructor(prefix: string) {
+        this.prefix = `${prefix}.records`;
+    }
 
     private recordKeys(): Array<string> {
         const memento = (indexedDB as unknown as FDBFactory).memento;
         return memento
             .keys()
-            .filter((it) => it.startsWith(`${this.name}.`))
-            .map((it) => it.substring(this.name.length + 1));
+            .filter((it) => it.startsWith(`${this.prefix}`))
+            .map((it) => it.slice(this.prefix.length + 2, -2))
+            .filter(it => this.writeCache.has(it) && this.writeCache.get(it) == undefined);
     }
 
     private getRecord(key: string): Record | undefined {
         const memento = (indexedDB as unknown as FDBFactory).memento;
-        const value = memento.get(`${this.name}.${key}`);
+        const value = this.writeCache.has(key) ? this.writeCache.get(key) : memento.get(`${this.prefix}['${key}']`);
+        console.log(`get ${this.prefix}['${key}'] = ${JSON.stringify(value)}`);
         return value === undefined ? undefined : { key, value };
     }
 
     private updateRecord(record: Record) {
         const memento = (indexedDB as unknown as FDBFactory).memento;
-        memento.update(`${this.name}.${record.key}`, record.value);
+        this.writeCache.set(record.key, record.value);
+        memento.update(`${this.prefix}['${record.key}']`, record.value).then(undefined, it => console.error(it));
+        console.log(`set ${this.prefix}['${record.key}'] = ${JSON.stringify(record.value)}`);
     }
 
     public get(key: Key | FDBKeyRange): Record | undefined {

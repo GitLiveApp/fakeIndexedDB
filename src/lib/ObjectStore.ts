@@ -1,3 +1,4 @@
+import { Memento } from "vscode";
 import FDBKeyRange from "../FDBKeyRange.js";
 import Database from "./Database.js";
 import { ConstraintError, DataError } from "./errors.js";
@@ -7,13 +8,21 @@ import KeyGenerator from "./KeyGenerator.js";
 import RecordStore from "./RecordStore.js";
 import { Key, KeyPath, Record, RollbackLog } from "./types.js";
 
+interface IndexInfo {
+    name: string,
+    keyPath: KeyPath,
+    multiEntry: boolean;
+    unique: boolean;
+}
+
+
 // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-object-store
 class ObjectStore {
     public deleted = false;
     public readonly rawDatabase: Database;
-    public readonly records: RecordStore;
-    public readonly rawIndexes: Map<string, Index> = new Map();
-    public name: string;
+    public records: RecordStore;
+    private _rawIndexes: ReadonlyMap<string, Index> | undefined;
+    private _name: string;
     public readonly keyPath: KeyPath | null;
     public readonly autoIncrement: boolean;
     public readonly keyGenerator: KeyGenerator | null;
@@ -28,10 +37,43 @@ class ObjectStore {
         this.keyGenerator = autoIncrement === true ? new KeyGenerator() : null;
         this.deleted = false;
 
-        this.name = name;
+        this._name = name;
         this.keyPath = keyPath;
         this.autoIncrement = autoIncrement;
-        this.records = new RecordStore(`${rawDatabase.name}.${name}${keyPath ? `.${keyPath}` : ''}`);
+        this.records = new RecordStore(`IDBFactory.databases['${rawDatabase.name}'].objectStores['${name}']`);
+    }
+
+    public get name() : string {
+        return this._name
+    }
+
+    public set name(name: string) {
+        const records = new RecordStore(`IDBFactory.databases['${this.rawDatabase.name}'].objectStores['${name}']`);
+        for(const record of this.records.values()) {
+            records.add(record);
+        }
+        this.records.clear();
+        this._name = name;
+        this.records = records;
+    }
+    
+    public get rawIndexes() : ReadonlyMap<string, Index> {
+        if(!this._rawIndexes) {
+            const entries = this.rawDatabase.memento
+                .get<IndexInfo[]>(`IDBFactory.databases['${this.rawDatabase.name}'].objectStores['${this.name}'].indexes`)
+                ?.map<[string, Index]>(it => [it.name, new Index(this, it.name, it.keyPath, it.multiEntry,  it.unique, true)])
+                || [];
+            this._rawIndexes = new Map(entries);
+        }
+        return this._rawIndexes!
+    }
+
+    public set rawIndexes(value: ReadonlyMap<string, Index>) {
+        this._rawIndexes = value;
+        this.rawDatabase.memento.update(
+            `IDBFactory.databases['${this.rawDatabase.name}'].objectStores['${this.name}'].indexes`, 
+            Array.from(value.values()).map<IndexInfo>(it => ({ name: it.name, keyPath: it.keyPath, multiEntry: it.multiEntry, unique: it.unique }))
+        ).then(undefined, it => console.error(it));   
     }
 
     // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-retrieving-a-value-from-an-object-store
@@ -149,21 +191,19 @@ class ObjectStore {
             this.keyGenerator.setIfLarger(newRecord.key);
         }
 
-        const existingRecord = this.records.get(newRecord.key);
+        const existingRecord = noOverwrite || rollbackLog ? this.records.get(newRecord.key) : undefined;
         if (existingRecord) {
             if (noOverwrite) {
                 throw new ConstraintError();
             }
-            this.deleteRecord(newRecord.key, rollbackLog);
+            if (rollbackLog) {
+                rollbackLog.push(() => {
+                    this.storeRecord(existingRecord, false);
+                });
+            }
         }
 
         this.records.add(newRecord);
-
-        if (rollbackLog) {
-            rollbackLog.push(() => {
-                this.deleteRecord(newRecord.key);
-            });
-        }
 
         // Update indexes
         for (const rawIndex of this.rawIndexes.values()) {

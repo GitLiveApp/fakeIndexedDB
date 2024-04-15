@@ -85,8 +85,10 @@ class FDBIndex {
         this._rawIndex.name = name;
         this.objectStore._indexesCache.delete(oldName);
         this.objectStore._indexesCache.set(name, this);
-        this.objectStore._rawObjectStore.rawIndexes.delete(oldName);
-        this.objectStore._rawObjectStore.rawIndexes.set(name, this._rawIndex);
+        this.objectStore._rawObjectStore.rawIndexes = new Map([
+            ...Array.from(this.objectStore._rawObjectStore.rawIndexes.entries()).filter(([it]) => it !== oldName), 
+            [name, this._rawIndex]
+        ]);
         this.objectStore.indexNames = new FakeDOMStringList(
             ...Array.from(this.objectStore._rawObjectStore.rawIndexes.keys())
                 .filter((indexName) => {
@@ -104,12 +106,11 @@ class FDBIndex {
             this._rawIndex.name = oldName;
             this.objectStore._indexesCache.delete(name);
             this.objectStore._indexesCache.set(oldName, this);
-            this.objectStore._rawObjectStore.rawIndexes.delete(name);
-            this.objectStore._rawObjectStore.rawIndexes.set(
-                oldName,
-                this._rawIndex,
-            );
-            this.objectStore.indexNames = new FakeDOMStringList(
+            this.objectStore._rawObjectStore.rawIndexes = new Map([
+                ...Array.from(this.objectStore._rawObjectStore.rawIndexes.entries()).filter(([it]) => it !== name), 
+                [oldName, this._rawIndex]
+            ]);
+                this.objectStore.indexNames = new FakeDOMStringList(
                 ...oldIndexNames,
             );
         });

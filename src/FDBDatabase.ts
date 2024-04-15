@@ -66,8 +66,7 @@ class FDBDatabase extends FakeEventTarget {
     public _runningVersionchangeTransaction = false;
     public _rawDatabase: Database;
 
-    public name: string;
-    public version: number;
+    public readonly name: string;
     public objectStoreNames: FakeDOMStringList;
 
     constructor(rawDatabase: Database) {
@@ -77,10 +76,13 @@ class FDBDatabase extends FakeEventTarget {
         this._rawDatabase.connections.push(this);
 
         this.name = rawDatabase.name;
-        this.version = rawDatabase.version;
         this.objectStoreNames = new FakeDOMStringList(
             ...Array.from(rawDatabase.rawObjectStores.keys()).sort(),
         );
+    }
+
+    public get version() : number {
+        return this._rawDatabase.version
     }
 
     // http://w3c.github.io/IndexedDB/#dom-idbdatabase-createobjectstore
@@ -123,7 +125,7 @@ class FDBDatabase extends FakeEventTarget {
 
             this.objectStoreNames = new FakeDOMStringList(...objectStoreNames);
             transaction._scope.delete(name);
-            this._rawDatabase.rawObjectStores.delete(name);
+            this._rawDatabase.rawObjectStores = new Map(Array.from(this._rawDatabase.rawObjectStores.entries()).filter(([it]) => it !== name));
         });
 
         const rawObjectStore = new ObjectStore(
@@ -135,7 +137,8 @@ class FDBDatabase extends FakeEventTarget {
         this.objectStoreNames._push(name);
         this.objectStoreNames._sort();
         transaction._scope.add(name);
-        this._rawDatabase.rawObjectStores.set(name, rawObjectStore);
+
+        this._rawDatabase.rawObjectStores = new Map([...this._rawDatabase.rawObjectStores.entries(), [name, rawObjectStore]]);
         transaction.objectStoreNames = new FakeDOMStringList(
             ...this.objectStoreNames,
         );
@@ -164,13 +167,14 @@ class FDBDatabase extends FakeEventTarget {
 
         transaction._rollbackLog.push(() => {
             store.deleted = false;
-            this._rawDatabase.rawObjectStores.set(name, store);
+            this._rawDatabase.rawObjectStores = new Map([...this._rawDatabase.rawObjectStores.entries(), [name, store]]);
             this.objectStoreNames._push(name);
             this.objectStoreNames._sort();
         });
 
         store.deleted = true;
-        this._rawDatabase.rawObjectStores.delete(name);
+        store.clear(transaction._rollbackLog);
+        this._rawDatabase.rawObjectStores = new Map(Array.from(this._rawDatabase.rawObjectStores.entries()).filter(([it]) => it !== name));
         transaction._objectStoresCache.delete(name);
     }
 

@@ -12,10 +12,9 @@ class Index {
     public deleted = false;
     // Initialized should be used to decide whether to throw an error or abort the versionchange transaction when there is a
     // constraint
-    public initialized = false;
     public readonly rawObjectStore: ObjectStore;
-    public readonly records: RecordStore;
-    public name: string;
+    public records: RecordStore;
+    private _name: string;
     public readonly keyPath: KeyPath;
     public multiEntry: boolean;
     public unique: boolean;
@@ -26,15 +25,29 @@ class Index {
         keyPath: KeyPath,
         multiEntry: boolean,
         unique: boolean,
+        public initialized = false
     ) {
         this.rawObjectStore = rawObjectStore;
 
-        this.name = name;
+        this._name = name;
         this.keyPath = keyPath;
         this.multiEntry = multiEntry;
         this.unique = unique;
-        this.records = new RecordStore(`${rawObjectStore.rawDatabase.name}.${rawObjectStore.name}.${name}`);
+        this.records = new RecordStore(`IDBFactory.databases['${rawObjectStore.rawDatabase.name}'].objectStores['${rawObjectStore.name}'].indexes['${name}']`);
+    }
 
+    public get name() : string {
+        return this._name
+    }
+
+    public set name(name: string) {
+        const records = new RecordStore(`IDBFactory.databases['${this.rawObjectStore.rawDatabase.name}'].objectStores['${this.rawObjectStore.name}'].indexes['${name}']`);
+        for(const record of this.records.values()) {
+            records.add(record);
+        }
+        this.records.clear();
+        this._name = name;
+        this.records = records;
     }
 
     // http://www.w3.org/TR/2015/REC-IndexedDB-20150108/#dfn-steps-for-retrieving-a-value-from-an-index

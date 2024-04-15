@@ -140,11 +140,10 @@ class FDBObjectStore {
         this._rawObjectStore.name = name;
         this.transaction._objectStoresCache.delete(oldName);
         this.transaction._objectStoresCache.set(name, this);
-        this._rawObjectStore.rawDatabase.rawObjectStores.delete(oldName);
-        this._rawObjectStore.rawDatabase.rawObjectStores.set(
-            name,
-            this._rawObjectStore,
-        );
+        this._rawObjectStore.rawDatabase.rawObjectStores = new Map([
+            ...Array.from(this._rawObjectStore.rawDatabase.rawObjectStores.entries()).filter(([it]) => it !== oldName), 
+            [name, this._rawObjectStore]
+        ]);
         transaction.db.objectStoreNames = new FakeDOMStringList(
             ...Array.from(
                 this._rawObjectStore.rawDatabase.rawObjectStores.keys(),
@@ -174,11 +173,11 @@ class FDBObjectStore {
             this._rawObjectStore.name = oldName;
             this.transaction._objectStoresCache.delete(name);
             this.transaction._objectStoresCache.set(oldName, this);
-            this._rawObjectStore.rawDatabase.rawObjectStores.delete(name);
-            this._rawObjectStore.rawDatabase.rawObjectStores.set(
-                oldName,
-                this._rawObjectStore,
-            );
+            this._rawObjectStore.rawDatabase.rawObjectStores = new Map([
+                ...Array.from(this._rawObjectStore.rawDatabase.rawObjectStores.entries()).filter(([it]) => it !== name), 
+                [oldName, this._rawObjectStore]
+            ]);
+    
             transaction.db.objectStoreNames = new FakeDOMStringList(
                 ...oldObjectStoreNames,
             );
@@ -444,7 +443,7 @@ class FDBObjectStore {
             }
 
             this.indexNames = new FakeDOMStringList(...indexNames);
-            this._rawObjectStore.rawIndexes.delete(name);
+            this._rawObjectStore.rawIndexes = new Map(Array.from(this._rawObjectStore.rawIndexes.entries()).filter(([it]) => it !== name));
         });
 
         const index = new Index(
@@ -456,7 +455,7 @@ class FDBObjectStore {
         );
         this.indexNames._push(name);
         this.indexNames._sort();
-        this._rawObjectStore.rawIndexes.set(name, index);
+        this._rawObjectStore.rawIndexes = new Map([...this._rawObjectStore.rawIndexes.entries(), [name, index]]);
 
         index.initialize(this.transaction); // This is async by design
 
@@ -510,7 +509,7 @@ class FDBObjectStore {
 
         this.transaction._rollbackLog.push(() => {
             rawIndex.deleted = false;
-            this._rawObjectStore.rawIndexes.set(name, rawIndex);
+            this._rawObjectStore.rawIndexes = new Map([...this._rawObjectStore.rawIndexes.entries(), [name, rawIndex]]);
             this.indexNames._push(name);
             this.indexNames._sort();
         });
@@ -521,6 +520,7 @@ class FDBObjectStore {
             }),
         );
         rawIndex.deleted = true; // Not sure if this is supposed to happen synchronously
+        rawIndex.rawObjectStore.clear(this.transaction._rollbackLog);
 
         this.transaction._execRequestAsync({
             operation: () => {
@@ -529,7 +529,7 @@ class FDBObjectStore {
                 // Hack in case another index is given this name before this async request is processed. It'd be better
                 // to have a real unique ID for each index.
                 if (rawIndex === rawIndex2) {
-                    this._rawObjectStore.rawIndexes.delete(name);
+                    this._rawObjectStore.rawIndexes = new Map(Array.from(this._rawObjectStore.rawIndexes.entries()).filter(([it]) => it !== name));
                 }
             },
             source: this,
